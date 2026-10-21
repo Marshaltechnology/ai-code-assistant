@@ -80,6 +80,25 @@ class UsageRecord(db.Model):
         index=True,
     )
 
+    __table_args__ = (
+        # Period aggregates filter by owner/workspace and a created_at window.
+        db.Index("ix_usage_records_user_created_at", "user_id", "created_at"),
+        db.Index("ix_usage_records_workspace_created_at", "workspace_id", "created_at"),
+        # Dashboards and exports additionally filter/group by source.
+        db.Index(
+            "ix_usage_records_user_source_created_at",
+            "user_id",
+            "source",
+            "created_at",
+        ),
+        db.Index(
+            "ix_usage_records_workspace_source_created_at",
+            "workspace_id",
+            "source",
+            "created_at",
+        ),
+    )
+
     def to_dict(self) -> dict:
         """Serialize the record for JSON responses, logs and exports."""
         return {
