@@ -8,6 +8,7 @@ from app.observability.metrics import (
     MAX_SERIES_PER_METRIC,
     REGISTRY,
     Counter,
+    Histogram,
 )
 
 SAMPLE_LINE = re.compile(r"^[a-zA-Z_:][a-zA-Z0-9_:]*(\{[^}]*\})? -?\d+(\.\d+)?([eE][+-]?\d+)?$")
@@ -73,6 +74,30 @@ def test_counter_cardinality_is_bounded():
     assert 'cap_total{kind="other"} 50' in samples
 
 
+def test_histogram_renders_cumulative_buckets_sum_and_count():
+    histogram = Histogram("lat_seconds", "Latency.", ("kind",), (0.1, 0.5, 1.0))
+    histogram.observe(0.05, kind="a")
+    histogram.observe(0.75, kind="a")
+    lines = histogram.render()
+    assert lines[0] == "# HELP lat_seconds Latency."
+    assert lines[1] == "# TYPE lat_seconds histogram"
+    assert 'lat_seconds_bucket{kind="a",le="0.1"} 1' in lines
+    assert 'lat_seconds_bucket{kind="a",le="0.5"} 1' in lines
+    assert 'lat_seconds_bucket{kind="a",le="1"} 2' in lines
+    assert 'lat_seconds_bucket{kind="a",le="+Inf"} 2' in lines
+    assert 'lat_seconds_sum{kind="a"} 0.8' in lines
+    assert 'lat_seconds_count{kind="a"} 2' in lines
+
+
+def test_histogram_cardinality_is_bounded():
+    histogram = Histogram("cap_lat_seconds", "Cap.", ("kind",), (1.0,))
+    for i in range(MAX_SERIES_PER_METRIC + 5):
+        histogram.observe(0.5, kind=f"k{i}")
+    samples = [line for line in histogram.render() if "_count{" in line]
+    assert len(samples) == MAX_SERIES_PER_METRIC + 1
+    assert 'cap_lat_seconds_count{kind="other"} 5' in samples
+
+
 def test_metrics_endpoint_returns_valid_exposition(client):
     client.get("/items/1")
     response = metrics_get(client)
@@ -89,6 +114,7 @@ def test_metrics_declares_all_families(client):
     body = metrics_get(client).get_data(as_text=True)
     for name in ("http_requests_total", "llm_tokens_total", "llm_cost_usd_total"):
         assert f"# TYPE {name} counter" in body
+    assert "# TYPE llm_latency_seconds histogram" in body
 
 
 def test_request_counter_uses_route_pattern_not_raw_path(client):
@@ -108,13 +134,15 @@ def test_unknown_paths_share_one_series(client):
     assert ('http_requests_total{method="GET",endpoint="unmatched",status="4xx"} 2') in body
 
 
-def test_token_and_cost_counters_are_published(client):
-    record_usage("openai", "gpt-x", 10, 5, 0.25)
-    record_usage("openai", "gpt-x", 2, 1, 0.5)
+def test_token_cost_and_latency_metrics_are_published(client):
+    record_usage("openai", "gpt-x", 10, 5, 0.25, latency_ms=250)
+    record_usage("openai", "gpt-x", 2, 1, 0.5, latency_ms=750)
     body = metrics_get(client).get_data(as_text=True)
     assert 'llm_tokens_total{provider="openai",model="gpt-x",direction="in"} 12' in body
     assert 'llm_tokens_total{provider="openai",model="gpt-x",direction="out"} 6' in body
     assert 'llm_cost_usd_total{provider="openai",model="gpt-x"} 0.75' in body
+    assert 'llm_latency_seconds_count{provider="openai",model="gpt-x"} 2' in body
+    assert 'llm_latency_seconds_sum{provider="openai",model="gpt-x"} 1' in body
 
 
 def test_record_usage_ignores_missing_values(client):
