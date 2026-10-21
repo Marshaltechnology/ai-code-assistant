@@ -127,7 +127,7 @@ class TestMigrationHead:
         result = _run_flask(["db", "heads"], {"DATABASE_URL": "sqlite:///:memory:"})
         assert result.returncode == 0, result.stderr
         output = result.stdout + result.stderr
-        assert "b7c8d9e0f1a2" in output
+        assert "e9f0a1b2c3d4" in output
         # The merge revision must be the single head (no dangling branches).
         head_lines = [line for line in output.splitlines() if "(head)" in line]
         assert len(head_lines) == 1
@@ -204,6 +204,7 @@ class TestMigrationHead:
             "total_tokens",
             "tokens_estimated",
             "cost_estimate",
+            "cost_recomputed_at",
             "request_id",
             "latency_ms",
             "status",
@@ -223,6 +224,10 @@ class TestMigrationHead:
                 "ix_usage_records_created_at",
                 "ix_usage_records_request_id",
                 "ix_usage_records_status",
+                "ix_usage_records_user_created_at",
+                "ix_usage_records_workspace_created_at",
+                "ix_usage_records_user_source_created_at",
+                "ix_usage_records_workspace_source_created_at",
             } <= indexes
 
     def test_usage_correlation_columns_downgrade_removed(self):
